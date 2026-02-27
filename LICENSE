@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2025 HanSoBored
+Copyright (c) 2026 Android-Mem-Kit Contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,26 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+## Disclaimer
+
+This library is intended for:
+- Security research
+- Educational purposes
+- Application debugging
+- Malware analysis
+- Penetration testing (with proper authorization)
+
+**NOT intended for:**
+- Game cheating or bypassing game protections
+- Circumventing security in production applications without authorization
+- Any illegal activities or unauthorized access
+
+Users are responsible for complying with all applicable laws, including:
+- Digital Millennium Copyright Act (DMCA)
+- Computer Fraud and Abuse Act (CFAA)
+- Local computer misuse laws
+
+By using this software, you agree to use it responsibly and ethically.

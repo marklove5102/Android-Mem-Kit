@@ -1,9 +1,0 @@
-[submodule "deps/Dobby"]
-	path = deps/Dobby
-	url = https://github.com/JingMatrix/Dobby
-[submodule "deps/KittyMemory"]
-	path = deps/KittyMemory
-	url = https://github.com/MJx0/KittyMemory.git
-[submodule "deps/xdl"]
-	path = deps/xdl
-	url = https://github.com/hexhacking/xdl.git

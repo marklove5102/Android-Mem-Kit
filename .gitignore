@@ -1,1 +1,46 @@
-/target
+# Build outputs
+build/
+*.so
+*.o
+*.a
+*.apk
+*.aar
+*.jar
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.bak
+
+# Dependencies (optional - can be cloned via setup.sh)
+# Uncomment if you want to track deps in git
+# deps/xdl/
+# deps/shadowhook/
+
+# NDK toolchain generated files
+*.d
+*.P
+
+# macOS
+.DS_Store
+Thumbs.db
+
+# Test/coverage
+*.gcno
+*.gcda
+coverage/

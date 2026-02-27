@@ -1,0 +1,398 @@
+# Android-Mem-Kit Usage Guide
+
+## Table of Contents
+
+1. [Getting Started](#getting-started)
+2. [API Reference](#api-reference)
+3. [Memory Patching](#memory-patching)
+4. [Function Hooking](#function-hooking)
+5. [IL2CPP Instrumentation](#il2cpp-instrumentation)
+6. [Error Handling](#error-handling)
+7. [Best Practices](#best-practices)
+
+---
+
+## Getting Started
+
+### Quick Setup
+
+```c
+#include "memkit.h"
+#include <android/log.h>
+
+#define LOG_TAG "MyResearch"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+```
+
+### Initialization Sequence
+
+```c
+__attribute__((constructor))
+void init() {
+    // Step 1: Initialize ShadowHook (required before any hooking)
+    int ret = memkit_hook_init(SHADOWHOOK_MODE_UNIQUE, false);
+    if (ret != 0) {
+        LOGE("ShadowHook init failed: %d", ret);
+        return;
+    }
+
+    // Step 2: Wait for target library to load
+    uintptr_t base = 0;
+    for (int i = 0; i < 30 && base == 0; i++) {
+        base = memkit_get_lib_base("libtarget.so");
+        if (base == 0) sleep(1);
+    }
+
+    if (base == 0) {
+        LOGE("Target library not found");
+        return;
+    }
+
+    LOGI("Library base: 0x%lx", base);
+
+    // Step 3: Start your instrumentation
+    start_instrumentation(base);
+}
+```
+
+---
+
+## API Reference
+
+### Memory Functions
+
+| Function | Description | Returns |
+|----------|-------------|---------|
+| `memkit_get_lib_base(const char* lib_name)` | Get lowest base address of loaded library | `uintptr_t` or 0 |
+| `memkit_patch_create(addr, hex_string)` | Create memory patch from hex string | `MemPatch*` or NULL |
+| `memkit_patch_apply(patch)` | Apply memory patch | `bool` |
+| `memkit_patch_restore(patch)` | Restore original bytes | `bool` |
+| `memkit_patch_free(patch)` | Free patch resources | `void` |
+
+### Hooking Functions
+
+| Function | Description | Returns |
+|----------|-------------|---------|
+| `memkit_hook_init(mode, debuggable)` | Initialize ShadowHook | `int` (0 = success) |
+| `memkit_hook(addr, replace, &orig)` | Hook function by address | `stub` or NULL |
+| `memkit_hook_by_symbol(lib, sym, func, &orig)` | Hook by symbol name | `stub` or NULL |
+| `memkit_unhook(stub)` | Unhook function | `void` |
+
+### IL2CPP Functions
+
+| Function | Description | Returns |
+|----------|-------------|---------|
+| `memkit_il2cpp_init()` | Initialize IL2CPP handle | `bool` |
+| `memkit_il2cpp_resolve(symbol)` | Resolve from .dynsym | `void*` or NULL |
+| `memkit_il2cpp_resolve_symtab(symbol)` | Resolve from .symtab | `void*` or NULL |
+| `memkit_il2cpp_get_handle()` | Get cached handle | `void*` or NULL |
+| `IL2CPP_CALL(ret, name, ...)` | Macro for auto-cached calls | Function pointer |
+
+---
+
+## Memory Patching
+
+### Basic Patch
+
+```c
+// ARM64: MOV X0, #0 (returns 0)
+uintptr_t base = memkit_get_lib_base("libtarget.so");
+MemPatch* patch = memkit_patch_create(base + 0x1234, "00 00 80 D2");
+
+if (patch && memkit_patch_apply(patch)) {
+    LOGI("Patch applied successfully");
+} else {
+    LOGE("Patch failed: %d", errno);
+}
+
+// Restore later if needed
+// memkit_patch_restore(patch);
+
+// Free when done
+// memkit_patch_free(patch);
+```
+
+### Multi-Byte Patch
+
+```c
+// ARM64: Multiple instructions
+MemPatch* multi_patch = memkit_patch_create(
+    base + 0x5678,
+    "00 00 80 D2 20 00 80 D2 1F 20 03 D5"  // MOV X0,#0; MOV X0,#1; NOP
+);
+
+if (multi_patch && memkit_patch_apply(multi_patch)) {
+    LOGI("Multi-byte patch applied");
+}
+```
+
+### Cross-Page Boundary (Safe)
+
+The library automatically handles patches that span memory pages:
+
+```c
+// This 20-byte patch might span two pages
+// memkit handles this automatically
+MemPatch* cross_page = memkit_patch_create(
+    base + 0xFFF0,  // Near page boundary
+    "00 00 80 D2 20 00 80 D2 40 00 80 D2 60 00 80 D2 80 00 80 D2"
+);
+```
+
+---
+
+## Function Hooking
+
+### Hook by Symbol Name (Recommended)
+
+```c
+// Original function pointer
+static int (*orig_target_function)(int param) = NULL;
+static void* hook_stub = NULL;
+
+// Replacement function
+static int my_target_function(int param) {
+    LOGI("target_function called with: %d", param);
+
+    // Call original if needed
+    return orig_target_function(param);
+}
+
+// Hook it
+hook_stub = memkit_hook_by_symbol(
+    "libtarget.so",
+    "target_function",
+    (void*)my_target_function,
+    (void**)&orig_target_function
+);
+
+if (hook_stub) {
+    LOGI("Hook successful");
+} else {
+    LOGE("Hook failed: %d", errno);
+}
+```
+
+### Hook by Address
+
+```c
+uintptr_t func_addr = base + 0xABCD;
+
+hook_stub = memkit_hook(
+    func_addr,
+    (void*)my_function,
+    (void**)&orig_function
+);
+```
+
+### Unhook
+
+```c
+// When done, unhook to restore original behavior
+memkit_unhook(hook_stub);
+```
+
+### ShadowHook Macros
+
+ShadowHook provides convenient macros:
+
+```c
+// In your hook function, call original using macro
+void my_hook(void* instance) {
+    // Option 1: Use stored original pointer
+    orig_function(instance);
+
+    // Option 2: Use SHADOWHOOK_CALL_PREV macro
+    SHADOWHOOK_CALL_PREV(my_hook, void (*)(void*), instance);
+}
+```
+
+---
+
+## IL2CPP Instrumentation
+
+### Basic IL2CPP Call
+
+```c
+// Auto-cached function call
+void* (*il2cpp_domain_get)(void) = IL2CPP_CALL(void*, "il2cpp_domain_get");
+
+if (il2cpp_domain_get) {
+    void* domain = il2cpp_domain_get();
+    LOGI("IL2CPP Domain: %p", domain);
+}
+```
+
+### Multiple Calls
+
+```c
+// Get domain
+void* (*il2cpp_domain_get)(void) = IL2CPP_CALL(void*, "il2cpp_domain_get");
+void* domain = il2cpp_domain_get();
+
+// Attach thread
+void* (*il2cpp_thread_attach)(void*) = IL2CPP_CALL(void*, "il2cpp_thread_attach", void*);
+il2cpp_thread_attach(domain);
+
+// Get root namespace
+void* (*il2cpp_get_root_namespace)(void) = IL2CPP_CALL(void*, "il2cpp_get_root_namespace");
+void* root_ns = il2cpp_get_root_namespace();
+```
+
+### Resolve Internal Symbols
+
+```c
+// Some symbols are only in .symtab
+void* internal_func = memkit_il2cpp_resolve_symtab("_ZN6Player13InternalInitEv");
+
+if (internal_func) {
+    LOGI("Found internal function: %p", internal_func);
+}
+```
+
+### Hook IL2CPP Functions
+
+```c
+static void* (*orig_il2cpp_thread_attach)(void*) = NULL;
+static void* thread_hook_stub = NULL;
+
+static void* my_il2cpp_thread_attach(void* domain) {
+    LOGI("il2cpp_thread_attach called");
+    return orig_il2cpp_thread_attach(domain);
+}
+
+// Hook it
+thread_hook_stub = memkit_hook_by_symbol(
+    "libil2cpp.so",
+    "il2cpp_thread_attach",
+    (void*)my_il2cpp_thread_attach,
+    (void**)&orig_il2cpp_thread_attach
+);
+```
+
+---
+
+## Error Handling
+
+### Using errno
+
+All functions set `errno` on failure:
+
+```c
+#include <errno.h>
+#include <string.h>
+
+void* stub = memkit_hook_by_symbol("lib.so", "func", my_func, (void**)&orig);
+if (stub == NULL) {
+    LOGE("Hook failed: %s", strerror(errno));
+
+    // Common errors:
+    // EINVAL - Invalid argument
+    // ENOENT - Symbol not found
+    // EACCES - Permission denied (mprotect failed)
+    // ENOMEM - Out of memory
+}
+```
+
+### ShadowHook Error Codes
+
+```c
+if (stub == NULL) {
+    int err = shadowhook_get_errno();
+    const char* msg = shadowhook_to_errmsg(err);
+    LOGE("ShadowHook error: %d - %s", err, msg);
+}
+```
+
+Common ShadowHook errors:
+- `SHADOWHOOK_ERRNO_HOOK_DLSYM` - Symbol not found
+- `SHADOWHOOK_ERRNO_HOOK_ENTER` - Failed to enter hook
+- `SHADOWHOOK_ERRNO_INVALID_ARG` - Invalid argument
+- `SHADOWHOOK_ERRNO_UNINIT` - Not initialized
+
+---
+
+## Best Practices
+
+### 1. Thread Safety
+
+The library is thread-safe. You can call APIs from multiple threads:
+
+```c
+// Safe to call from any thread
+void* thread_func(void* arg) {
+    void* func = IL2CPP_CALL(void*, "some_function");
+    if (func) func();
+    return NULL;
+}
+```
+
+### 2. Memory Management
+
+Always free patches when done:
+
+```c
+MemPatch* patch = memkit_patch_create(...);
+memkit_patch_apply(patch);
+
+// ... later ...
+memkit_patch_restore(patch);
+memkit_patch_free(patch);
+```
+
+### 3. Wait for Library Load
+
+```c
+uintptr_t wait_for_lib(const char* name, int timeout_sec) {
+    uintptr_t base = 0;
+    for (int i = 0; i < timeout_sec && base == 0; i++) {
+        base = memkit_get_lib_base(name);
+        if (base == 0) sleep(1);
+    }
+    return base;
+}
+```
+
+### 4. Validate Pointers
+
+```c
+// Always check for NULL before using
+if (orig_function != NULL) {
+    orig_function(param);
+}
+
+// Check patch before applying
+if (patch && memkit_patch_apply(patch)) {
+    // Success
+}
+```
+
+### 5. Use UNIQUE Mode
+
+Unless you need multiple hooks on same function:
+
+```c
+// Recommended for most cases
+memkit_hook_init(SHADOWHOOK_MODE_UNIQUE, false);
+```
+
+### 6. Logging
+
+Use Android logging for debugging:
+
+```c
+#include <android/log.h>
+
+#define LOG_TAG "MyResearch"
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+```
+
+---
+
+## Next Steps
+
+- See [RECIPES.md](RECIPES.md) for common patterns
+- See [SECURITY_RESEARCH.md](SECURITY_RESEARCH.md) for legitimate use cases
