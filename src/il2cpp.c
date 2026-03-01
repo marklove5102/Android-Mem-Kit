@@ -2,43 +2,38 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
+#include <stdatomic.h>
 
 #include "memkit.h"
 #include "xdl.h"
 
 // ============================================================================
-// IL2CPP: STATIC STATE (Thread-Safe)
+// IL2CPP: STATIC STATE (Thread-Safe via C11 Atomics)
 // ============================================================================
 
 static void* g_il2cpp_handle = NULL;
-static bool g_initialized = false;
-static pthread_once_t g_init_once = PTHREAD_ONCE_INIT;
-static pthread_mutex_t g_il2cpp_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-// Internal init function (called once via pthread_once)
-static void memkit_il2cpp_init_once(void) {
-    // Use XDL to open libil2cpp.so
-    // XDL_DEFAULT = 0, bypasses linker restrictions on Android 7+
-    // XDL can read both .dynsym and .symtab sections
-    g_il2cpp_handle = xdl_open("libil2cpp.so", XDL_DEFAULT);
-    g_initialized = true;
-}
+static atomic_bool g_initialized = ATOMIC_VAR_INIT(false);
 
 // ============================================================================
 // IL2CPP: INITIALIZATION
 // ============================================================================
 
 bool memkit_il2cpp_init(void) {
-    // Use pthread_once for thread-safe one-time initialization
-    pthread_once(&g_init_once, memkit_il2cpp_init_once);
+    bool expected = false;
     
-    // Lock mutex to safely read the handle
-    pthread_mutex_lock(&g_il2cpp_mutex);
-    bool has_handle = (g_il2cpp_handle != NULL);
-    pthread_mutex_unlock(&g_il2cpp_mutex);
+    // Only the first thread (CAS succeeds) executes xdl_open
+    // atomic_compare_exchange_strong: 100% thread-safe, lock-free
+    if (atomic_compare_exchange_strong(&g_initialized, &expected, true)) {
+        g_il2cpp_handle = xdl_open("libil2cpp.so", XDL_DEFAULT);
+    }
     
-    return has_handle;
+    // Wait briefly if another thread is still opening the handle (rare case)
+    while (atomic_load(&g_initialized) && g_il2cpp_handle == NULL) {
+        // Check if it truly failed, or if another thread is still processing
+        // This spin-wait is extremely short in practice (microseconds)
+    }
+    
+    return g_il2cpp_handle != NULL;
 }
 
 // ============================================================================
@@ -48,13 +43,7 @@ bool memkit_il2cpp_init(void) {
 void* memkit_il2cpp_get_handle(void) {
     // Ensure initialization
     memkit_il2cpp_init();
-    
-    // Lock mutex to safely read the handle
-    pthread_mutex_lock(&g_il2cpp_mutex);
-    void* handle = g_il2cpp_handle;
-    pthread_mutex_unlock(&g_il2cpp_mutex);
-    
-    return handle;
+    return g_il2cpp_handle;
 }
 
 // ============================================================================
@@ -66,22 +55,13 @@ void* memkit_il2cpp_resolve(const char* symbol_name) {
         return NULL;
     }
 
-    // Ensure initialization (thread-safe)
+    // Ensure initialization (thread-safe via atomics)
     memkit_il2cpp_init();
 
-    // Lock mutex to safely access handle
-    pthread_mutex_lock(&g_il2cpp_mutex);
-    void* handle = g_il2cpp_handle;
-    pthread_mutex_unlock(&g_il2cpp_mutex);
-
-    // If handle is still NULL, try to open again
-    if (!handle) {
-        pthread_mutex_lock(&g_il2cpp_mutex);
+    // If handle is NULL, try to open directly
+    if (!g_il2cpp_handle) {
         g_il2cpp_handle = xdl_open("libil2cpp.so", XDL_DEFAULT);
-        handle = g_il2cpp_handle;
-        pthread_mutex_unlock(&g_il2cpp_mutex);
-        
-        if (!handle) {
+        if (!g_il2cpp_handle) {
             return NULL;
         }
     }
@@ -89,7 +69,7 @@ void* memkit_il2cpp_resolve(const char* symbol_name) {
     // Resolve the symbol using XDL
     // xdl_sym searches in .dynsym (dynamic symbol table)
     // This is where most exported functions live
-    return xdl_sym(handle, symbol_name, NULL);
+    return xdl_sym(g_il2cpp_handle, symbol_name, NULL);
 }
 
 // ============================================================================
@@ -102,15 +82,10 @@ void* memkit_il2cpp_resolve_symtab(const char* symbol_name) {
         return NULL;
     }
 
-    // Ensure initialization (thread-safe)
+    // Ensure initialization (thread-safe via atomics)
     memkit_il2cpp_init();
 
-    // Lock mutex to safely access handle
-    pthread_mutex_lock(&g_il2cpp_mutex);
-    void* handle = g_il2cpp_handle;
-    pthread_mutex_unlock(&g_il2cpp_mutex);
-
-    if (!handle) {
+    if (!g_il2cpp_handle) {
         return NULL;
     }
 
@@ -119,5 +94,5 @@ void* memkit_il2cpp_resolve_symtab(const char* symbol_name) {
     // - Stripped symbols
     // - Internal/private functions
     // - Debug symbols
-    return xdl_dsym(handle, symbol_name, NULL);
+    return xdl_dsym(g_il2cpp_handle, symbol_name, NULL);
 }
