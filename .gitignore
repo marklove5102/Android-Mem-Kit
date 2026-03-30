@@ -1,3 +1,6 @@
+# Internal
+docs/internal/
+
 # Build outputs
 build/
 *.so
