@@ -89,6 +89,46 @@ void init() {
 | `memkit_il2cpp_get_handle()` | Get cached handle | `void*` or NULL |
 | `IL2CPP_CALL(ret, name, ...)` | Macro for auto-cached calls | Function pointer |
 
+### XDL Wrapper Functions
+
+#### Library Discovery
+
+| Function | Description | Returns |
+|----------|-------------|---------|
+| `memkit_xdl_iterate(cb, data, flags)` | Iterate all loaded libraries | `int` (count or -1) |
+| `memkit_xdl_open(name, flags)` | Open library handle | `void*` or NULL |
+| `memkit_xdl_close(handle)` | Close library handle | `bool` |
+| `memkit_xdl_get_lib_info(handle, &info)` | Get library details | `bool` |
+
+#### Symbol Resolution
+
+| Function | Description | Returns |
+|----------|-------------|---------|
+| `memkit_xdl_sym(handle, symbol, &size)` | Resolve from .dynsym | `void*` or NULL |
+| `memkit_xdl_dsym(handle, symbol, &size)` | Resolve from .symtab (debug) | `void*` or NULL |
+
+#### Address-to-Symbol (Debug Introspection)
+
+| Function | Description | Returns |
+|----------|-------------|---------|
+| `memkit_xdl_addr_ctx_create()` | Create resolution context | `ctx*` or NULL |
+| `memkit_xdl_addr_ctx_destroy(ctx)` | Destroy context | `void` |
+| `memkit_xdl_addr_to_symbol(addr, &info, ctx)` | Resolve address to symbol | `bool` |
+| `memkit_xdl_addr_to_symbol4(addr, &info, ctx, flags)` | With flags (e.g., `XDL_NON_SYM`) | `bool` |
+
+#### Advanced
+
+| Function | Description | Returns |
+|----------|-------------|---------|
+| `memkit_xdl_open_from_phdr(info)` | Create handle from `dl_phdr_info` | `void*` or NULL |
+
+#### Convenience Macros
+
+| Macro | Description |
+|-------|-------------|
+| `XDL_RESOLVE(lib, sym)` | One-shot symbol resolve |
+| `XDL_RESOLVE_SIZE(lib, sym, &size)` | Resolve with size output |
+
 ---
 
 ## Memory Patching
@@ -388,6 +428,158 @@ Use Android logging for debugging:
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 #define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG, LOG_TAG, __VA_ARGS__)
+```
+
+---
+
+## XDL Wrapper Examples
+
+### Discover All Loaded Libraries
+
+```c
+typedef struct {
+    const char* target;
+    uintptr_t base;
+} find_lib_ctx_t;
+
+static bool find_library_callback(const MemKitLibInfo* info, void* user_data) {
+    find_lib_ctx_t* ctx = (find_lib_ctx_t*)user_data;
+
+    if (strcmp(info->name, ctx->target) == 0) {
+        ctx->base = info->base;
+        LOGI("Found %s at 0x%lx (size: %zu bytes)", 
+             info->name, info->base, info->size);
+        return false;  // Stop iteration
+    }
+
+    LOGD("Library: %s @ 0x%lx", info->name, info->base);
+    return true;  // Continue
+}
+
+void discover_libraries() {
+    find_lib_ctx_t ctx = {.target = "libil2cpp.so"};
+    
+    int count = memkit_xdl_iterate(find_library_callback, &ctx, XDL_DEFAULT);
+    LOGI("Iterated %d libraries, found target at 0x%lx", count, ctx.base);
+}
+```
+
+### Resolve Symbol from Any Library
+
+```c
+// Generic symbol resolution (not just IL2CPP)
+void* resolve_from_libc() {
+    void* handle = memkit_xdl_open("libc.so", XDL_DEFAULT);
+    if (!handle) return NULL;
+
+    void* open_sym = memkit_xdl_sym(handle, "open", NULL);
+    LOGI("libc.so::open = %p", open_sym);
+
+    memkit_xdl_close(handle);
+    return open_sym;
+}
+
+// One-shot with macro
+void* sym = XDL_RESOLVE("libc.so", "open");
+```
+
+### Address-to-Symbol (Stack Trace / Debugging)
+
+```c
+void resolve_address(void* addr) {
+    memkit_addr_ctx_t* ctx = memkit_xdl_addr_ctx_create();
+    MemKitSymInfo info;
+
+    if (memkit_xdl_addr_to_symbol(addr, &info, ctx)) {
+        LOGI("Address %p:", addr);
+        LOGI("  Library: %s (base: 0x%lx)", info.lib_name, info.lib_base);
+        LOGI("  Symbol: %s (offset: 0x%lx, size: %zu)", 
+             info.sym_name ? info.sym_name : "<unknown>",
+             info.sym_offset, info.sym_size);
+    } else {
+        LOGI("Could not resolve address %p", addr);
+    }
+
+    memkit_xdl_addr_ctx_destroy(ctx);
+}
+
+// Resolve multiple addresses (reuse context for performance)
+void resolve_multiple_addresses(void** addrs, int count) {
+    memkit_addr_ctx_t* ctx = memkit_xdl_addr_ctx_create();
+    
+    for (int i = 0; i < count; i++) {
+        MemKitSymInfo info;
+        if (memkit_xdl_addr_to_symbol(addrs[i], &info, ctx)) {
+            LOGI("[%d] %p -> %s!%s+0x%lx", 
+                 i, addrs[i], info.lib_name, 
+                 info.sym_name ? info.sym_name : "?", info.sym_offset);
+        }
+    }
+
+    memkit_xdl_addr_ctx_destroy(ctx);
+}
+```
+
+### Get Library Information
+
+```c
+void print_lib_info(const char* lib_name) {
+    void* handle = memkit_xdl_open(lib_name, XDL_DEFAULT);
+    if (!handle) {
+        LOGE("Could not open %s", lib_name);
+        return;
+    }
+
+    MemKitLibInfo info;
+    if (memkit_xdl_get_lib_info(handle, &info)) {
+        LOGI("Library: %s", info.name);
+        LOGI("  Base: 0x%lx", info.base);
+        LOGI("  Path: %s", info.path ? info.path : "N/A");
+    }
+
+    memkit_xdl_close(handle);
+}
+```
+
+### Fast Address-to-Library (Skip Symbol Lookup)
+
+```c
+// Use XDL_NON_SYM for faster lookup when you only need library info
+void quick_lib_lookup(void* addr) {
+    memkit_addr_ctx_t* ctx = memkit_xdl_addr_ctx_create();
+    MemKitSymInfo info;
+
+    // Skip symbol resolution for faster results
+    if (memkit_xdl_addr_to_symbol4(addr, &info, ctx, XDL_NON_SYM)) {
+        LOGI("Address %p is in %s (base: 0x%lx)", 
+             addr, info.lib_name, info.lib_base);
+        // info.sym_name will be NULL (skipped)
+    }
+
+    memkit_xdl_addr_ctx_destroy(ctx);
+}
+```
+
+### Thread Safety
+
+The XDL wrapper is **thread-safe**:
+
+```c
+// Multiple threads can safely call memkit_xdl_iterate()
+void* thread_func(void* arg) {
+    // Each thread gets its own TLS buffer
+    memkit_xdl_iterate(my_callback, NULL, XDL_DEFAULT);
+    return NULL;
+}
+
+// Address resolution context is per-thread (NOT shared)
+void* worker(void* arg) {
+    // Create per-thread context
+    memkit_addr_ctx_t* ctx = memkit_xdl_addr_ctx_create();
+    // ... use ctx ...
+    memkit_xdl_addr_ctx_destroy(ctx);
+    return NULL;
+}
 ```
 
 ---

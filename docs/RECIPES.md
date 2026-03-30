@@ -481,4 +481,193 @@ void cleanup_research_tools() {
 
 ---
 
+## XDL Wrapper Recipes
+
+### 1. List All Loaded Libraries
+
+```c
+#include "memkit.h"
+
+static bool list_all_callback(const MemKitLibInfo* info, void* user_data) {
+    (void)user_data;
+    LOGI("Library: %s", info->name);
+    LOGI("  Base: 0x%016lx  Size: %zu bytes", info->base, info->size);
+    if (info->path) {
+        LOGI("  Path: %s", info->path);
+    }
+    return true;  // Continue iteration
+}
+
+void list_loaded_libraries() {
+    LOGI("=== Loaded Libraries ===");
+    int count = memkit_xdl_iterate(list_all_callback, NULL, XDL_DEFAULT);
+    LOGI("Total: %d libraries", count);
+}
+```
+
+### 2. Find Library Base Without Hardcoding
+
+```c
+typedef struct {
+    const char* name;
+    uintptr_t base;
+} find_ctx_t;
+
+static bool find_lib_callback(const MemKitLibInfo* info, void* user_data) {
+    find_ctx_t* ctx = (find_ctx_t*)user_data;
+    
+    if (strstr(info->name, ctx->name) != NULL) {
+        ctx->base = info->base;
+        LOGI("Found %s at 0x%lx", info->name, ctx->base);
+        return false;  // Stop
+    }
+    return true;
+}
+
+uintptr_t find_library_base(const char* partial_name) {
+    find_ctx_t ctx = {.name = partial_name, .base = 0};
+    memkit_xdl_iterate(find_lib_callback, &ctx, XDL_DEFAULT);
+    return ctx.base;
+}
+
+// Usage
+uintptr_t il2cpp_base = find_library_base("il2cpp");
+uintptr_t libc_base = find_library_base("libc.so");
+```
+
+### 3. Symbolicate Stack Addresses
+
+```c
+void symbolicate_stack_trace(void** addresses, int count) {
+    memkit_addr_ctx_t* ctx = memkit_xdl_addr_ctx_create();
+    
+    LOGI("=== Stack Trace ===");
+    for (int i = 0; i < count; i++) {
+        MemKitSymInfo info;
+        if (memkit_xdl_addr_to_symbol(addresses[i], &info, ctx)) {
+            LOGI("#%d  %p  in  %s!%s+0x%lx",
+                 i, addresses[i],
+                 info.lib_name,
+                 info.sym_name ? info.sym_name : "<unknown>",
+                 info.sym_offset);
+        } else {
+            LOGI("#%d  %p  <unresolved>", i, addresses[i]);
+        }
+    }
+    
+    memkit_xdl_addr_ctx_destroy(ctx);
+}
+```
+
+### 4. Resolve Internal Functions (Debug Symbols)
+
+```c
+// Some functions are only in .symtab (stripped from .dynsym)
+void* resolve_internal_function() {
+    void* handle = memkit_xdl_open("libil2cpp.so", XDL_DEFAULT);
+    if (!handle) return NULL;
+
+    // Try .dynsym first (faster)
+    void* sym = memkit_xdl_sym(handle, "il2cpp_init", NULL);
+    
+    // Fall back to .symtab if not found
+    if (!sym) {
+        LOGI("Symbol not in .dynsym, trying .symtab...");
+        sym = memkit_xdl_dsym(handle, "il2cpp_init", NULL);
+    }
+
+    memkit_xdl_close(handle);
+    return sym;
+}
+```
+
+### 5. Hook Any Library Function (Not Just IL2CPP)
+
+```c
+static int (*orig_libc_open)(const char* path, int flags) = NULL;
+static void* open_hook_stub = NULL;
+
+static int my_libc_open(const char* path, int flags) {
+    LOGI("libc::open called: %s", path ? path : "(null)");
+    return orig_libc_open(path, flags);
+}
+
+void hook_libc_open() {
+    // Use XDL wrapper to resolve from libc
+    void* handle = memkit_xdl_open("libc.so", XDL_DEFAULT);
+    if (!handle) return;
+
+    void* open_sym = memkit_xdl_sym(handle, "open", NULL);
+    if (open_sym) {
+        open_hook_stub = memkit_hook(
+            (uintptr_t)open_sym,
+            (void*)my_libc_open,
+            (void**)&orig_libc_open
+        );
+    }
+
+    memkit_xdl_close(handle);
+}
+```
+
+### 6. Fast Batch Address Resolution
+
+```c
+// Reuse context for multiple lookups (better performance)
+void resolve_batch(void** addresses, int count) {
+    memkit_addr_ctx_t* ctx = memkit_xdl_addr_ctx_create();
+    
+    for (int i = 0; i < count; i++) {
+        MemKitSymInfo info;
+        if (memkit_xdl_addr_to_symbol(addresses[i], &info, ctx)) {
+            // Process result
+        }
+    }
+    
+    memkit_xdl_addr_ctx_destroy(ctx);  // Important: clean up cache
+}
+```
+
+### 7. Get Detailed Library Information
+
+```c
+void print_library_details(const char* lib_name) {
+    void* handle = memkit_xdl_open(lib_name, XDL_DEFAULT);
+    if (!handle) {
+        LOGE("Could not open %s", lib_name);
+        return;
+    }
+
+    MemKitLibInfo info;
+    if (memkit_xdl_get_lib_info(handle, &info)) {
+        LOGI("=== Library Info: %s ===", info.name);
+        LOGI("Base Address: 0x%016lx", info.base);
+        LOGI("Size: %zu bytes (%.2f MB)", info.size, info.size / (1024.0 * 1024.0));
+        if (info.path) {
+            LOGI("Path: %s", info.path);
+        }
+    }
+
+    memkit_xdl_close(handle);
+}
+```
+
+### 8. Quick One-Shot Symbol Resolution
+
+```c
+// Use macros for quick one-off lookups
+void quick_resolve() {
+    // Resolve without size
+    void* open_sym = XDL_RESOLVE("libc.so", "open");
+    LOGI("libc::open = %p", open_sym);
+
+    // Resolve with size
+    size_t size;
+    void* malloc_sym = XDL_RESOLVE_SIZE("libc.so", "malloc", &size);
+    LOGI("libc::malloc = %p (size: %zu)", malloc_sym, size);
+}
+```
+
+---
+
 *These recipes are for security research and educational purposes only.*
