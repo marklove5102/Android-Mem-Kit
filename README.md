@@ -53,9 +53,6 @@ This library is intended for:
 ```bash
 # Android NDK (r25b or newer)
 export ANDROID_NDK_HOME=/path/to/your/android-ndk-r29
-
-# CMake 3.10+
-cmake --version
 ```
 
 ### 2. Clone & Setup
@@ -64,11 +61,27 @@ cmake --version
 git clone https://github.com/HanSoBored/Android-Mem-Kit.git
 cd Android-Mem-Kit
 
-# Clone dependencies
-./setup.sh
+# Clone dependencies (git submodules)
+git submodule update --init --recursive
 ```
 
-### 3. Build
+### 3. Build (Makefile - Recommended)
+
+```bash
+# Default build (arm64-v8a)
+make
+
+# Custom ABI
+make ANDROID_ABI=armeabi-v7a
+
+# Custom platform
+make ANDROID_ABI=arm64-v8a ANDROID_PLATFORM=android-35
+
+# Clean build
+make clean && make
+```
+
+### 3. Build (CMake - Alternative)
 
 ```bash
 mkdir build && cd build
@@ -77,7 +90,7 @@ mkdir build && cd build
 cmake .. \
     -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
     -DANDROID_ABI=arm64-v8a \
-    -DANDROID_PLATFORM=android-21
+    -DANDROID_PLATFORM=android-35
 
 # Build
 cmake --build .
@@ -150,7 +163,8 @@ For detailed usage and examples, see:
 
 ```
 Android-Mem-Kit/
-├── CMakeLists.txt          # Build configuration
+├── CMakeLists.txt          # Build configuration (CMake)
+├── Makefile                # Build configuration (Make - Recommended)
 ├── include/
 │   └── memkit.h            # Public API header
 ├── src/
@@ -163,7 +177,6 @@ Android-Mem-Kit/
 │   ├── USAGE.md            # Detailed documentation
 │   ├── RECIPES.md          # Common patterns
 │   └── SECURITY_RESEARCH.md # Research use cases
-├── setup.sh                # Dependency setup script
 └── deps/
     ├── xdl/                # XDL library (git submodule)
     └── shadowhook/         # ShadowHook library (git submodule)
