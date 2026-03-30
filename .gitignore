@@ -27,11 +27,6 @@ Makefile
 *.tmp
 *.bak
 
-# Dependencies (optional - can be cloned via setup.sh)
-# Uncomment if you want to track deps in git
-deps/xdl/
-deps/shadowhook/
-
 # NDK toolchain generated files
 *.d
 *.P

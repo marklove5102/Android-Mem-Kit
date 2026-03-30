@@ -1,45 +1,26 @@
 #!/bin/bash
 
 # Setup script for android-mem-kit
-# This script clones the required dependencies
+# This script initializes git submodules for dependencies
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEPS_DIR="$SCRIPT_DIR/deps"
 
 echo "=== Android-Mem-Kit Setup ==="
 echo ""
 
-# Create deps directory if it doesn't exist
-mkdir -p "$DEPS_DIR"
-
-# Clone XDL
-if [ -d "$DEPS_DIR/xdl" ]; then
-	echo "✓ XDL already exists at: $DEPS_DIR/xdl"
-	echo "  To update, run: cd $DEPS_DIR/xdl && git pull"
-else
-	echo "Cloning XDL..."
-	git clone https://github.com/hexhacking/xdl.git "$DEPS_DIR/xdl"
-	echo "✓ XDL cloned successfully"
-fi
-
-# Clone ShadowHook (android-inline-hook)
-if [ -d "$DEPS_DIR/shadowhook" ]; then
-	echo "✓ ShadowHook already exists at: $DEPS_DIR/shadowhook"
-	echo "  To update, run: cd $DEPS_DIR/shadowhook && git pull"
-else
-	echo "Cloning ShadowHook (android-inline-hook)..."
-	git clone https://github.com/bytedance/android-inline-hook.git "$DEPS_DIR/shadowhook"
-	echo "✓ ShadowHook cloned successfully"
-fi
+# Initialize and update git submodules
+echo "Initializing git submodules..."
+cd "$SCRIPT_DIR"
+git submodule update --init --recursive
 
 echo ""
-echo "=== Setup Complete ==="
+echo "✓ Dependencies installed successfully"
 echo ""
-echo "Dependencies installed:"
-echo "  - XDL: $DEPS_DIR/xdl"
-echo "  - ShadowHook: $DEPS_DIR/shadowhook"
+echo "Dependencies:"
+echo "  - XDL: $SCRIPT_DIR/deps/xdl"
+echo "  - ShadowHook: $SCRIPT_DIR/deps/shadowhook"
 echo ""
 echo "Next steps:"
 echo "1. Set your NDK path:"
