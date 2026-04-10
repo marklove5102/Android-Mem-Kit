@@ -151,3 +151,63 @@ void *memkit_hook_with_callback(const char *lib_name, const char *sym_name, void
 void *memkit_hook_by_symbol_callback(const char *lib_name, const char *sym_name, void *new_addr, void **orig_addr, MemKitHooked hooked, void *hooked_arg) {
     return memkit_hook_with_callback(lib_name, sym_name, new_addr, orig_addr, hooked, hooked_arg);
 }
+
+// ============================================================================
+// HOOKING: BY SYMBOL ADDRESS
+// ============================================================================
+
+void *memkit_hook_sym_addr(void *sym_addr, void *new_addr, void **orig_addr) {
+    if (!sym_addr || !new_addr) {
+        errno = EINVAL;
+        return NULL;
+    }
+
+    void *stub = shadowhook_hook_sym_addr(sym_addr, new_addr, orig_addr);
+
+    if (!stub) {
+        errno = shadowhook_get_errno();
+    }
+    return stub;
+}
+
+// ============================================================================
+// DL HELPERS: shadowhook_dlopen/dlsym/dlclose wrappers
+// ============================================================================
+
+void *memkit_dlopen(const char *lib_name) {
+    if (!lib_name) {
+        errno = EINVAL;
+        return NULL;
+    }
+    return shadowhook_dlopen(lib_name);
+}
+
+void memkit_dlclose(void *handle) {
+    if (handle) {
+        shadowhook_dlclose(handle);
+    }
+}
+
+void *memkit_dlsym(void *handle, const char *sym_name) {
+    if (!handle || !sym_name) {
+        errno = EINVAL;
+        return NULL;
+    }
+    return shadowhook_dlsym(handle, sym_name);
+}
+
+void *memkit_dlsym_dynsym(void *handle, const char *sym_name) {
+    if (!handle || !sym_name) {
+        errno = EINVAL;
+        return NULL;
+    }
+    return shadowhook_dlsym_dynsym(handle, sym_name);
+}
+
+void *memkit_dlsym_symtab(void *handle, const char *sym_name) {
+    if (!handle || !sym_name) {
+        errno = EINVAL;
+        return NULL;
+    }
+    return shadowhook_dlsym_symtab(handle, sym_name);
+}

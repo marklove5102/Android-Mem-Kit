@@ -99,6 +99,15 @@ void memkit_unhook(void* stub);
  */
 void* memkit_hook_by_symbol(const char* lib_name, const char* symbol_name, void* replace_func, void** out_orig_func);
 
+/**
+ * Hook by symbol address (already resolved pointer)
+ * @param sym_addr Pointer to target function symbol
+ * @param new_addr Replacement function pointer
+ * @param orig_addr Output: original function pointer
+ * @return Stub handle or NULL on failure
+ */
+void *memkit_hook_sym_addr(void *sym_addr, void *new_addr, void **orig_addr);
+
 // ============================================================================
 // IL2CPP API (XDL)
 // ============================================================================
@@ -563,6 +572,52 @@ void *memkit_get_return_address(void);
 
 void *memkit_hook_v2(const char *lib_name, const char *sym_name, void *new_addr, void **orig_addr, uint32_t flags);
 void *memkit_hook_by_symbol_v2(const char *lib_name, const char *sym_name, void *new_addr, void **orig_addr, uint32_t flags);
+
+/**
+ * Hook by function address with flags (variadic for RECORD mode)
+ * When MK_HOOK_RECORD is set, pass record_lib_name and record_sym_name after flags.
+ */
+void *memkit_hook_func_addr_2(void *func_addr, void *new_addr, void **orig_addr, uint32_t flags, ...);
+
+/**
+ * Hook by symbol address with flags (variadic for RECORD mode)
+ * When MK_HOOK_RECORD is set, pass record_lib_name and record_sym_name after flags.
+ */
+void *memkit_hook_sym_addr_2(void *sym_addr, void *new_addr, void **orig_addr, uint32_t flags, ...);
+
+/**
+ * Hook by symbol name with flags and completion callback
+ */
+void *memkit_hook_sym_name_callback_2(const char *lib_name, const char *sym_name, void *new_addr, void **orig_addr, uint32_t flags, MemKitHooked hooked, void *hooked_arg);
+
+// ============================================================================
+// DL HELPERS: Library loading and symbol resolution
+// ============================================================================
+
+/**
+ * Open a library handle for symbol resolution (ShadowHook's internal loader)
+ */
+void *memkit_dlopen(const char *lib_name);
+
+/**
+ * Close a library handle
+ */
+void memkit_dlclose(void *handle);
+
+/**
+ * Resolve a symbol from a library handle (tries .dynsym then .symtab)
+ */
+void *memkit_dlsym(void *handle, const char *sym_name);
+
+/**
+ * Resolve a symbol from .dynsym section only (faster)
+ */
+void *memkit_dlsym_dynsym(void *handle, const char *sym_name);
+
+/**
+ * Resolve a symbol from .symtab section only (debug/stripped symbols, slower)
+ */
+void *memkit_dlsym_symtab(void *handle, const char *sym_name);
 
 // ============================================================================
 // INTERCEPT API
