@@ -52,7 +52,7 @@ endef
 # Flags & Sources
 # ============================================================================
 
-CFLAGS = -Wall -Wextra -fPIC -O2 -std=c11 -Wno-macro-redefined
+CFLAGS = -Wall -Wextra -fPIC -O2 -std=c23 -Wno-macro-redefined
 INCLUDES = -Iinclude \
            -Ideps/xdl/xdl/src/main/cpp/include \
            -Ideps/shadowhook/shadowhook/src/main/cpp/include \
