@@ -114,12 +114,18 @@ For a quicker build without CMake configuration:
 make
 make ANDROID_ABI=armeabi-v7a
 make clean
+
+# Build with examples (CMake)
+cmake -B build -DBUILD_EXAMPLES=ON
+cmake --build build
 ```
 
 ### Testing
 
 ```bash
 # Build test library
+make test
+
 # Load on test device/emulator
 # Check logcat output
 adb logcat -s MemKit-Example

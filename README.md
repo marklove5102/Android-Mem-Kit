@@ -69,6 +69,9 @@ git submodule update --init --recursive
 # Default build (arm64-v8a)
 make
 
+# Build with tests
+make test
+
 # Custom ABI
 make ANDROID_ABI=armeabi-v7a
 
@@ -77,6 +80,10 @@ make clean && make
 
 # Custom build with CMake (for subproject use)
 cmake -B build -DMEMKIT_BUILD_SHARED=OFF -DCMAKE_TOOLCHAIN_FILE=...
+cmake --build build
+
+# Build with examples (CMake)
+cmake -B build -DBUILD_EXAMPLES=ON -DCMAKE_TOOLCHAIN_FILE=...
 cmake --build build
 ```
 

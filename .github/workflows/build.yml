@@ -14,13 +14,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
-        submodules: false  # We'll clone deps manually
-        
-    - name: Setup dependencies
-      run: |
-        git clone --depth 1 https://github.com/hexhacking/xdl.git deps/xdl
-        git clone --depth 1 https://github.com/bytedance/android-inline-hook.git deps/shadowhook
-        
+        submodules: recursive
+
     - name: Setup Android NDK
       uses: nttld/setup-ndk@v1
       id: setup-ndk

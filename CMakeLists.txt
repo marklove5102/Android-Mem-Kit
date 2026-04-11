@@ -87,7 +87,7 @@ if(USE_LOCAL_DEPS)
         target_compile_definitions(xdl PRIVATE __ANDROID__API__=35)
         message(STATUS "Using local XDL: ${XDL_DIR}")
     else()
-        message(WARNING "Local XDL not found. Run ./setup.sh or set USE_LOCAL_DEPS=OFF")
+        message(WARNING "Local XDL not found. Clone deps via 'git submodule update --init --recursive' or set USE_LOCAL_DEPS=OFF")
     endif()
 
     # ShadowHook library
@@ -155,7 +155,7 @@ if(USE_LOCAL_DEPS)
         target_compile_definitions(shadowhook PRIVATE __ANDROID__API__=35)
         message(STATUS "Using local ShadowHook: ${SHADOWHOOK_DIR}")
     else()
-        message(WARNING "Local ShadowHook not found. Run ./setup.sh or set USE_LOCAL_DEPS=OFF")
+        message(WARNING "Local ShadowHook not found. Clone deps via 'git submodule update --init --recursive' or set USE_LOCAL_DEPS=OFF")
     endif()
 
 else()
